@@ -4,7 +4,12 @@ Script d'exemple: Lancer un backtest complet.
 
 import sys
 import pandas as pd
-import matplotlib.pyplot as plt
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
 from main import TradingBot
 
 

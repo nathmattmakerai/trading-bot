@@ -4,7 +4,11 @@ Macro data loaders: VIX, US10Y yield, economic calendar.
 
 import pandas as pd
 from typing import Dict, Tuple
-import yfinance as yf
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
 
 
 class MacroDataLoader:

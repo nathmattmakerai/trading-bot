@@ -26,17 +26,15 @@ DATA_SOURCES = {
 # Détection compression (ATR-based, plus robuste que BB)
 COMPRESSION_CONFIG = {
     "atr_period": 14,
+    "atr_lookback": 50,
+    "range_lookback": 20,
     "atr_ratio_threshold": 0.75,  # ATR(14) < 0.75 * ATR(50)
-    "atr_lookback_period": 50,
-    "range_lookback_period": 20,  # Dernières 20 bougies
     "range_ratio_threshold": 1.5,  # Range < 1.5 * ATR(14)
 }
 
 # Breakout confirmé: close > high range OU close < low range
 BREAKOUT_CONFIG = {
-    "long_condition": "close > max(high[-20:])",
-    "short_condition": "close < min(low[-20:])",
-    "prevent_intrabar_fakeout": True,  # Confirmation close, pas intrabar
+    "range_lookback": 20,
 }
 
 # ===== FILTRE MACRO (OBLIGATOIRE) =====
@@ -66,8 +64,6 @@ RISK_CONFIG = {
     "risk_per_trade": 0.0075,  # 0.75%
     "max_daily_loss": 0.025,  # 2.5%
     "max_trades_per_day": 2,
-    "pyramiding_allowed": False,
-    "lot_type": "whole_contracts_only",
 }
 
 # ===== PRISE DE POSITION =====
@@ -76,6 +72,14 @@ POSITION_CONFIG = {
     "take_profit_ratio": 3.0,  # 3R
     "trailing_stop": False,  # NO trailing
     "breakeven": False,  # NO BE logic
+}
+
+# ===== SESSION TRADING =====
+SESSION_CONFIG = {
+    "rth_open": "8:00 AM ET",
+    "rth_close": "3:00 PM ET",
+    "utc_start": TRADING_SESSION_UTC_START,
+    "utc_end": TRADING_SESSION_UTC_END,
 }
 
 # ===== ONE-TRADE-AT-A-TIME RULE =====
@@ -105,3 +109,22 @@ Chaque exception tue un futur fund manager.
 # Version gelée - DO NOT TOUCH
 VERSION = "v1_FROZEN"
 LOCKED = True
+
+# ===== EXPORT FOR INTERFACE =====
+# Complete frozen configuration for web interface and documentation
+vv1_FROZEN = {
+    "VERSION": "v1_FROZEN",
+    "LOCKED": True,
+    "INSTRUMENTS": INSTRUMENTS,
+    "BASE_TIMEFRAME": BASE_TIMEFRAME,
+    "CONTEXT_TIMEFRAMES": CONTEXT_TIMEFRAMES,
+    "MACRO_TIMEFRAME": MACRO_TIMEFRAME,
+    "DATA_SOURCES": DATA_SOURCES,
+    "COMPRESSION_CONFIG": COMPRESSION_CONFIG,
+    "BREAKOUT_CONFIG": BREAKOUT_CONFIG,
+    "RISK_CONFIG": RISK_CONFIG,
+    "MACRO_FILTER_CONFIG": MACRO_FILTER_CONFIG,
+    "CALENDAR_FILTER_CONFIG": CALENDAR_FILTER_CONFIG,
+    "POSITION_CONFIG": POSITION_CONFIG,
+    "SESSION_CONFIG": SESSION_CONFIG,
+}

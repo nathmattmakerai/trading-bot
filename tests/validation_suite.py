@@ -124,10 +124,10 @@ class TestCompressionDetector(unittest.TestCase):
         dates = pd.date_range("2025-01-01", periods=100, freq="15min")
         np.random.seed(42)
         
-        # Données normales (volatilité moyenne)
-        closes = np.random.normal(100, 2, 100).cumsum() + 100
-        highs = closes + np.random.uniform(0, 1, 100)
-        lows = closes - np.random.uniform(0, 1, 100)
+        # Données normales (volatilité moyenne tout au long)
+        closes = pd.Series(100 + np.cumsum(np.random.normal(0, 1, 100)))
+        highs = closes + np.abs(np.random.normal(0, 0.5, 100))
+        lows = closes - np.abs(np.random.normal(0, 0.5, 100))
         
         self.df_normal = pd.DataFrame({
             "open": closes,
@@ -137,10 +137,18 @@ class TestCompressionDetector(unittest.TestCase):
             "volume": np.random.randint(100000, 500000, 100),
         }, index=dates)
         
-        # Données comprimées (volatilité basse)
-        closes_compressed = np.random.normal(100, 0.1, 100).cumsum() + 100
-        highs_compressed = closes_compressed + np.random.uniform(0, 0.05, 100)
-        lows_compressed = closes_compressed - np.random.uniform(0, 0.05, 100)
+        # Données comprimées: normal vol for 60 bars, then nearly flat for 40 bars
+        np.random.seed(43)
+        closes_normal = pd.Series(100 + np.cumsum(np.random.normal(0, 1.5, 60)))
+        last_close = closes_normal.iloc[-1]
+        # Compression: tiny moves, essentially flat
+        closes_compressed = np.concatenate([
+            closes_normal.values,
+            np.ones(40) * last_close + np.random.normal(0, 0.01, 40)
+        ])
+        
+        highs_compressed = closes_compressed + np.abs(np.random.normal(0, 0.1, 100))
+        lows_compressed = closes_compressed - np.abs(np.random.normal(0, 0.1, 100))
         
         self.df_compressed = pd.DataFrame({
             "open": closes_compressed,

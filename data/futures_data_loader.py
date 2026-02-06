@@ -5,8 +5,11 @@ Data loaders pour futures CME et données macro.
 import pandas as pd
 from typing import Tuple, Dict
 from datetime import datetime, timedelta
-import yfinance as yf
-import requests
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
 
 
 class FuturesDataLoader:

@@ -20,16 +20,16 @@ class CompressionDetector:
         atr_period: int = 14,
         atr_lookback: int = 50,
         range_lookback: int = 20,
-        atr_ratio_threshold: float = 0.75,
-        range_ratio_threshold: float = 1.5,
+        atr_ratio_threshold: float = 0.65,
+        range_ratio_threshold: float = 2.0,
     ):
         """
         Args:
             atr_period: Période ATR court terme
             atr_lookback: Période ATR long terme
             range_lookback: Nombre de bougies pour calculer range
-            atr_ratio_threshold: Ratio ATR pour déterminer compression
-            range_ratio_threshold: Ratio range/ATR
+            atr_ratio_threshold: Ratio ATR pour déterminer compression (0.65 = 35% reduction in vol)
+            range_ratio_threshold: Ratio range/ATR (default 2.0)
         """
         self.atr_period = atr_period
         self.atr_lookback = atr_lookback
@@ -98,19 +98,12 @@ class CompressionDetector:
         atr_short = self.calculate_atr(df, self.atr_period)
         atr_long = self.calculate_atr(df, self.atr_lookback)
         
-        # Calculer range
-        range_val = self.calculate_range(df, self.range_lookback)
-        
-        # Dernière valeur
+        # Dernière valeur - simple check: short-term ATR is low vs long-term
         atr_short_last = atr_short.iloc[-1]
         atr_long_last = atr_long.iloc[-1]
-        range_last = range_val.iloc[-1]
         
-        # Vérifications
-        atr_compressed = atr_short_last < (self.atr_ratio * atr_long_last)
-        range_compressed = range_last < (self.range_ratio * atr_short_last)
-        
-        return atr_compressed and range_compressed
+        # Compression: short-term volatility is significantly lower than long-term
+        return atr_short_last < (self.atr_ratio * atr_long_last)
     
     def get_compression_metrics(self, df: pd.DataFrame) -> dict:
         """
@@ -143,6 +136,5 @@ class CompressionDetector:
             "range_ratio": range_ratio_val,
             "range_threshold": self.range_ratio,
             "range_compressed": range_ratio_val < self.range_ratio,
-            "is_compression": (atr_ratio_val < self.atr_ratio) and 
-                             (range_ratio_val < self.range_ratio),
+            "is_compression": (atr_ratio_val < self.atr_ratio) and (range_ratio_val < self.range_ratio),
         }
