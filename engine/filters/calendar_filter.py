@@ -19,10 +19,10 @@ class CalendarFilter:
     Veille + lendemain d'événements inclus dans blackout.
     """
     
-    def __init__(self, buffer_days: int = 1):
+    def __init__(self, buffer_days: int = 0):
         """
         Args:
-            buffer_days: Jours avant/après événement à mettre en blackout
+            buffer_days: Jours avant/après événement à mettre en blackout (réduit à 0 pour activité)
         """
         self.buffer_days = buffer_days
         self.blackout_events = {

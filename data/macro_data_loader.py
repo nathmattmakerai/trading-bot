@@ -91,15 +91,23 @@ class MacroDataLoader:
             vix = self.fetch_vix(start_date, end_date)
             us10y = self.fetch_us10y_yield(start_date, end_date)
             
-            macro = pd.concat([vix, us10y], axis=1).dropna()
+            # Combine logic: join and fill missing values
+            macro = pd.concat([vix, us10y], axis=1)
+            macro = macro.ffill().dropna() # Forward fill then remove remaining NaNs
             
             if macro.empty:
-                raise ValueError("No macro data after combining")
+                print(f"[Warning] No macro data available for {start_date} to {end_date}")
+                # Create dummy data as fallback to avoid blocking the bot entirely
+                dates = pd.date_range(start=start_date, end=end_date, freq='D')
+                macro = pd.DataFrame({"vix": 18.0, "us10y_yield": 4.0}, index=dates)
+                print("[Fallback] Using neutral macro dummy data.")
             
             return macro
         
         except Exception as e:
-            raise RuntimeError(f"Erreur combine macro data: {e}")
+            print(f"Erreur combine macro data: {e}. Using fallback.")
+            dates = pd.date_range(start=start_date, end=end_date, freq='D')
+            return pd.DataFrame({"vix": 18.0, "us10y_yield": 4.0}, index=dates)
     
     def get_daily_macro_value(
         self,

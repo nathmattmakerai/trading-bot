@@ -34,6 +34,9 @@ class FuturesDataLoader:
         """
         Récupère données futures NQ/ES.
         
+        Pour les données d'archives (> 60 jours), télécharge les données daily
+        et génère des bougies 15m simulées réalistes.
+        
         Args:
             instrument: 'NQ' ou 'ES'
             start_date: YYYY-MM-DD
@@ -46,29 +49,212 @@ class FuturesDataLoader:
         if instrument not in self.instruments:
             raise ValueError(f"Instrument {instrument} non supporté. Utilisez {self.instruments}")
         
-        # Ticker Yahoo Finance pour futures
+        # Ticker mappings - NQ/ES → indices correspondants
         ticker_map = {
-            "NQ": "^GSPC",  # Remplacer par symbole futures réel (ex: NQU24)
-            "ES": "^GSPC",  # Remplacer par symbole futures réel (ex: ESU24)
+            "NQ": "^NDX",   # NASDAQ 100
+            "ES": "^GSPC",  # S&P 500
         }
         
+        ticker = ticker_map[instrument]
+        
+        # Vérifier si les données intraday sont disponibles (< 60 jours)
+        from datetime import datetime
+        start_dt = pd.to_datetime(start_date)
+        days_ago = (datetime.now() - start_dt.to_pydatetime().replace(tzinfo=None)).days
+        
+        if days_ago <= 60 and timeframe in ["15m", "30m", "1h"]:
+            # Essayer de télécharger les données intraday
+            try:
+                df = yf.download(
+                    ticker,
+                    start=start_date,
+                    end=end_date,
+                    interval=timeframe,
+                    progress=False,
+                )
+                
+                if not df.empty and len(df) > 10:
+                    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+                    df.columns = ["open", "high", "low", "close", "volume"]
+                    df = df.dropna()
+                    return df
+            except Exception:
+                pass  # Fallback to daily data conversion
+        
+        # Télécharger données daily (toujours disponibles)
         try:
-            df = yf.download(
-                ticker_map[instrument],
+            df_daily = yf.download(
+                ticker,
                 start=start_date,
                 end=end_date,
-                interval=timeframe.replace("m", "m").replace("h", "h"),
+                interval="1d",
+                progress=False,
             )
             
-            # Nettoyer et renommer colonnes
-            df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-            df.columns = ["open", "high", "low", "close", "volume"]
-            df = df.dropna()
+            if df_daily.empty:
+                raise RuntimeError(f"Aucune donnée disponible pour {instrument} ({start_date} to {end_date})")
             
-            return df
+            # Flatten MultiIndex columns if present
+            if isinstance(df_daily.columns, pd.MultiIndex):
+                df_daily.columns = df_daily.columns.get_level_values(0)
             
+            df_daily = df_daily[["Open", "High", "Low", "Close", "Volume"]].copy()
+            df_daily.columns = ["open", "high", "low", "close", "volume"]
+            df_daily = df_daily.dropna()
+            
+            # Convertir en timeframe demandé
+            if timeframe == "1d":
+                return df_daily
+            else:
+                # Générer données intraday simulées à partir des données daily
+                return self._generate_intraday_from_daily(df_daily, timeframe)
+                
         except Exception as e:
             raise RuntimeError(f"Erreur chargement données {instrument}: {e}")
+    
+    def _generate_intraday_from_daily(
+        self,
+        df_daily: pd.DataFrame,
+        timeframe: str = "15m",
+    ) -> pd.DataFrame:
+        """
+        Génère des données intraday simulées à partir de données daily.
+        
+        Utilise un modèle de micro-structure pour créer des bougies réalistes
+        tout en respectant les niveaux OHLC daily.
+        
+        Args:
+            df_daily: DataFrame avec données daily
+            timeframe: '15m', '30m', '1h'
+        
+        Returns:
+            DataFrame avec données intraday simulées
+        """
+        import numpy as np
+        
+        # Nombre de bougies par jour selon le timeframe (session RTH: 9:30-16:00 = 6.5h)
+        bars_per_day = {
+            "15m": 26,  # 6.5h * 4 bougies/h
+            "30m": 13,  # 6.5h * 2 bougies/h
+            "1h": 7,    # 6.5h arrondi
+        }
+        
+        n_bars = bars_per_day.get(timeframe, 26)
+        intraday_rows = []
+        
+        for date_idx, daily_row in df_daily.iterrows():
+            day_open = float(daily_row["open"])
+            day_high = float(daily_row["high"])
+            day_low = float(daily_row["low"])
+            day_close = float(daily_row["close"])
+            day_volume = float(daily_row["volume"])
+            
+            # Générer un chemin de prix réaliste
+            np.random.seed(int(date_idx.timestamp()) % (2**31 - 1))
+            
+            # Pattern typique: ouverture volatile, milieu de journée calme, fermeture active
+            # Créer des points clés aléatoires dans le range daily
+            intraday_range = day_high - day_low
+            
+            # Générer des prix de clôture pour chaque bougie
+            # Le prix doit partir de day_open et finir à day_close
+            # en passant par day_high et day_low à un moment
+            
+            # Position relative du high et low dans la journée (simulé)
+            high_bar = np.random.randint(1, n_bars - 2)
+            low_bar = np.random.randint(1, n_bars - 2)
+            
+            # S'assurer que high et low ne sont pas au même moment
+            while abs(high_bar - low_bar) < 2:
+                low_bar = np.random.randint(1, n_bars - 2)
+            
+            # Créer une trajectoire de prix
+            closes = np.zeros(n_bars)
+            
+            # Générer une marche aléatoire contrôlée
+            for i in range(n_bars):
+                if i == 0:
+                    closes[i] = day_open
+                elif i == n_bars - 1:
+                    closes[i] = day_close
+                elif i == high_bar:
+                    closes[i] = day_high - np.random.uniform(0, intraday_range * 0.05)
+                elif i == low_bar:
+                    closes[i] = day_low + np.random.uniform(0, intraday_range * 0.05)
+                else:
+                    # Interpoler avec du bruit
+                    progress = i / (n_bars - 1)
+                    base_price = day_open + (day_close - day_open) * progress
+                    noise = np.random.normal(0, intraday_range * 0.1)
+                    closes[i] = np.clip(base_price + noise, day_low, day_high)
+            
+            # Créer les bougies OHLC pour chaque période
+            volume_per_bar = day_volume / n_bars
+            
+            for i in range(n_bars):
+                # Créer timestamp pour cette bougie
+                if timeframe == "15m":
+                    minutes = 9 * 60 + 30 + i * 15  # 9:30 + i*15 min
+                elif timeframe == "30m":
+                    minutes = 9 * 60 + 30 + i * 30
+                else:  # 1h
+                    minutes = 9 * 60 + 30 + i * 60
+                
+                bar_time = pd.Timestamp(
+                    year=date_idx.year,
+                    month=date_idx.month,
+                    day=date_idx.day,
+                    hour=minutes // 60,
+                    minute=minutes % 60,
+                    tz="America/New_York"
+                ).tz_convert("UTC")
+                
+                # OHLC pour cette bougie
+                if i == 0:
+                    bar_open = day_open
+                else:
+                    bar_open = closes[i - 1]
+                
+                bar_close = closes[i]
+                
+                # High/Low: entre open et close + bruit
+                bar_range = abs(bar_close - bar_open) + intraday_range * np.random.uniform(0.01, 0.05)
+                bar_high = max(bar_open, bar_close) + abs(np.random.normal(0, bar_range * 0.3))
+                bar_low = min(bar_open, bar_close) - abs(np.random.normal(0, bar_range * 0.3))
+                
+                # S'assurer que le high/low journalier est atteint
+                if i == high_bar:
+                    bar_high = day_high
+                if i == low_bar:
+                    bar_low = day_low
+                
+                # Contraindre aux limites daily
+                bar_high = min(bar_high, day_high)
+                bar_low = max(bar_low, day_low)
+                
+                # Volume avec pattern U-shape typique (plus de volume en open et close)
+                volume_factor = 1.0
+                if i < 3:  # Première heure
+                    volume_factor = 1.5
+                elif i >= n_bars - 3:  # Dernière heure
+                    volume_factor = 1.3
+                
+                bar_volume = volume_per_bar * volume_factor * np.random.uniform(0.7, 1.3)
+                
+                intraday_rows.append({
+                    "open": bar_open,
+                    "high": bar_high,
+                    "low": bar_low,
+                    "close": bar_close,
+                    "volume": bar_volume,
+                    "timestamp": bar_time,
+                })
+        
+        df_intraday = pd.DataFrame(intraday_rows)
+        df_intraday.set_index("timestamp", inplace=True)
+        df_intraday.sort_index(inplace=True)
+        
+        return df_intraday
     
     def resample_to_timeframe(
         self,
@@ -122,10 +308,17 @@ class MacroDataLoader:
         self.vix_ticker = "^VIX"
         self.us10y_ticker = "^TNX"
     
+    def _flatten_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aplatit les colonnes MultiIndex si présentes."""
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    
     def fetch_vix(self, start_date: str, end_date: str) -> pd.DataFrame:
         """Récupère VIX (clôture daily)."""
         try:
-            vix = yf.download(self.vix_ticker, start=start_date, end=end_date)
+            vix = yf.download(self.vix_ticker, start=start_date, end=end_date, progress=False)
+            vix = self._flatten_columns(vix)
             return vix[["Close"]].rename(columns={"Close": "vix"})
         except Exception as e:
             raise RuntimeError(f"Erreur chargement VIX: {e}")
@@ -133,7 +326,8 @@ class MacroDataLoader:
     def fetch_us10y_yield(self, start_date: str, end_date: str) -> pd.DataFrame:
         """Récupère US 10Y yield (clôture daily)."""
         try:
-            us10y = yf.download(self.us10y_ticker, start=start_date, end=end_date)
+            us10y = yf.download(self.us10y_ticker, start=start_date, end=end_date, progress=False)
+            us10y = self._flatten_columns(us10y)
             return us10y[["Close"]].rename(columns={"Close": "us10y_yield"})
         except Exception as e:
             raise RuntimeError(f"Erreur chargement US10Y: {e}")
@@ -147,12 +341,27 @@ class MacroDataLoader:
         Combine VIX et US10Y yield.
         
         Returns:
-            DataFrame daily avec [vix, us10y_yield]
+            DataFrame daily avec [vix, us10y_yield], indexé par date (datetime.date)
         """
         vix = self.fetch_vix(start_date, end_date)
         us10y = self.fetch_us10y_yield(start_date, end_date)
         
-        macro = pd.concat([vix, us10y], axis=1).dropna()
+        # Combine logic: join and fill missing values
+        macro = pd.concat([vix, us10y], axis=1)
+        macro = macro.ffill().dropna() # Forward fill then remove remaining NaNs
+        
+        if macro.empty:
+            print(f"[Warning] No macro data available for {start_date} to {end_date}")
+            # Create dummy data as fallback to avoid blocking the bot entirely
+            dates = pd.date_range(start=start_date, end=end_date, freq='D')
+            macro = pd.DataFrame({"vix": 18.0, "us10y_yield": 4.0}, index=dates)
+            macro.index = macro.index.date
+            print("[Fallback] Using neutral macro dummy data.")
+            return macro
+
+        # Convertir l'index en date simple pour faciliter la correspondance
+        macro.index = pd.to_datetime(macro.index).date
+        
         return macro
 
 

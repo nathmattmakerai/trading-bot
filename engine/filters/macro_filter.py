@@ -69,12 +69,12 @@ class MacroFilter:
         return RiskRegime.NEUTRAL
     
     def is_long_allowed(self, regime: RiskRegime) -> bool:
-        """Long autorisé en risk-on uniquement."""
-        return regime == RiskRegime.RISK_ON
+        """Long autorisé en risk-on et neutral."""
+        return regime in [RiskRegime.RISK_ON, RiskRegime.NEUTRAL]
     
     def is_short_allowed(self, regime: RiskRegime) -> bool:
-        """Short possible en risk-off et neutral."""
-        return regime in [RiskRegime.RISK_OFF, RiskRegime.NEUTRAL]
+        """Short possible partout sauf en risk-on extrême? Non, on autorise tout pour le trading actif."""
+        return True # Autoriser les shorts même en risk-on (breakdowns)
     
     def should_trade(self, regime: RiskRegime, signal_direction: str) -> bool:
         """

@@ -14,9 +14,9 @@ class SessionFilter:
     No trading en prémarché, postmarché, sessions asiatiques/euro.
     """
     
-    # RTH US en UTC
-    RTH_START_UTC_HOUR = 13  # 8:00 AM ET
-    RTH_END_UTC_HOUR = 20  # 3:00 PM ET (fermeture RTH)
+    # RTH US en UTC (Élargi)
+    RTH_START_UTC_HOUR = 12  # 7:00 AM ET
+    RTH_END_UTC_HOUR = 21  # 4:00 PM ET (fermeture RTH)
     
     # RTH US en ET (pour référence)
     RTH_START_ET = time(8, 0)

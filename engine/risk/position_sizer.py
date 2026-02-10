@@ -41,44 +41,37 @@ class PositionSizer:
         self,
         account_balance: float,
         stop_loss_distance: float,
-        tick_value: float = 20.0,  # Pour NQ/ES: 1 tick = $20
+        tick_value: float = 20.0,  # Par défaut NQ E-mini. Sera surchargé pour MNQ ($2)
     ) -> int:
         """
         Calcule nombre de contrats.
-        
-        Formule:
-        Risk_$ = account_balance × risk_per_trade
-        Position_size = Risk_$ / (SL_distance × tick_value)
-        -> Round down to whole contracts
-        
-        Args:
-            account_balance: Solde compte
-            stop_loss_distance: Distance SL en points (ex: 25 points)
-            tick_value: Valeur 1 tick en dollars
-        
-        Returns:
-            Nombre de contrats (entier positif)
         """
-        if account_balance <= 0:
+        if account_balance <= 0 or stop_loss_distance <= 0:
             return 0
         
-        if stop_loss_distance <= 0:
+        # Risque autorisé en dollars (ex: $10,000 * 0.01 = $100)
+        risk_allows_dollars = account_balance * self.risk_per_trade
+        
+        # Risque par contrat unique (ex: 20 points * $20/point = $400)
+        risk_per_contract = stop_loss_distance * tick_value
+        
+        if risk_per_contract == 0:
             return 0
+            
+        # Nombre de contrats "théorique" selon le risque
+        # Ex: $100 / $400 = 0.25 contrat
+        raw_size = risk_allows_dollars / risk_per_contract
         
-        # Risque en dollars
-        risk_dollars = account_balance * self.risk_per_trade
+        contracts = int(raw_size)
         
-        # SL distance en dollars
-        sl_dollars = stop_loss_distance * tick_value
-        
-        # Taille position
-        position_size = risk_dollars / sl_dollars
-        
-        # Arrondir vers le bas (whole contracts)
-        contracts = int(position_size)
-        
-        # Min 1 contrat
-        return max(1, contracts)
+        # Security: Don't force 1 contract if it represents > 10% of account risk 
+        # This avoids "kamikaze" trades on small accounts.
+        if contracts == 0:
+            if risk_per_contract > (account_balance * 0.10):
+                return 0
+            return 1
+            
+        return contracts
     
     def get_stop_loss(
         self,

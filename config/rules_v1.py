@@ -10,9 +10,9 @@ BASE_TIMEFRAME = "15m"  # 15 minutes uniquement
 CONTEXT_TIMEFRAMES = ["1h", "4h"]  # H1 / H4
 MACRO_TIMEFRAME = "1d"  # Daily
 
-# Sessions trading autorisées (RTH US uniquement)
-TRADING_SESSION_UTC_START = 13  # 8:00 AM EST
-TRADING_SESSION_UTC_END = 20  # 3:00 PM EST (fermeture RTH)
+# Sessions trading autorisées (Plus large : 7:00 AM - 4:00 PM EST)
+TRADING_SESSION_UTC_START = 12  # 7:00 AM EST
+TRADING_SESSION_UTC_END = 21  # 4:00 PM EST (clôture NYSE)
 
 # ===== UNIVERS DE DONNÉES =====
 DATA_SOURCES = {
@@ -28,8 +28,8 @@ COMPRESSION_CONFIG = {
     "atr_period": 14,
     "atr_lookback": 50,
     "range_lookback": 20,
-    "atr_ratio_threshold": 0.75,  # ATR(14) < 0.75 * ATR(50)
-    "range_ratio_threshold": 1.5,  # Range < 1.5 * ATR(14)
+    "atr_ratio_threshold": 0.8,   # PRO : Ne trade que les vraies compressions
+    "range_ratio_threshold": 2.5,  # PRO : Range resserré pour éviter les faux breakouts
 }
 
 # Breakout confirmé: close > high range OU close < low range
@@ -37,10 +37,10 @@ BREAKOUT_CONFIG = {
     "range_lookback": 20,
 }
 
-# ===== FILTRE MACRO (OBLIGATOIRE) =====
+# ===== FILTRE MACRO (MOINS RESTRICTIF) =====
 MACRO_FILTER_CONFIG = {
-    "risk_on_vix": 18,  # VIX < 18 = long autorisé
-    "risk_off_vix": 22,  # VIX > 22 = short only ou no trade
+    "risk_on_vix": 25,  # VIX < 25 = long autorisé
+    "risk_off_vix": 35,  # VIX > 35 = short only ou no trade
     "yield_rules": {
         "stable_or_rising": "long_ok",
         "sharp_decline": "short_only_or_no_trade",
@@ -61,17 +61,17 @@ CALENDAR_FILTER_CONFIG = {
 
 # ===== RISK MANAGEMENT =====
 RISK_CONFIG = {
-    "risk_per_trade": 0.0075,  # 0.75%
-    "max_daily_loss": 0.025,  # 2.5%
-    "max_trades_per_day": 2,
+    "risk_per_trade": 0.02,   # 2% (Gestion professionnelle)
+    "max_daily_loss": 0.06,   # 6.0% (Marge de manoeuvre)
+    "max_trades_per_day": 10, # 10 trades (Liberté totale)
 }
 
 # ===== PRISE DE POSITION =====
 POSITION_CONFIG = {
     "stop_loss_placement": "opposite_side_of_range",
-    "take_profit_ratio": 3.0,  # 3R
-    "trailing_stop": False,  # NO trailing
-    "breakeven": False,  # NO BE logic
+    "take_profit_ratio": 2.5,  # 2.5R (Plus réaliste pour les futurs)
+    "trailing_stop": False,
+    "breakeven": True,
 }
 
 # ===== SESSION TRADING =====

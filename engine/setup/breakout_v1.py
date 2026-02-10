@@ -27,7 +27,10 @@ class BreakoutSetupV1:
     
     def calculate_range_bounds(self, df: pd.DataFrame) -> Tuple[float, float]:
         """
-        Calcule bornes du range.
+        Calcule bornes du range sur les N bougies précédentes (excluant la dernière).
+        
+        Le range exclut la bougie actuelle pour permettre de détecter si 
+        le close actuel brise le range précédent.
         
         Args:
             df: DataFrame avec colonnes [high, low]
@@ -35,10 +38,14 @@ class BreakoutSetupV1:
         Returns:
             Tuple (range_high, range_low)
         """
-        if len(df) < self.range_lookback:
+        # On a besoin d'au moins range_lookback + 1 bougies 
+        # (les 20 précédentes + la bougie actuelle)
+        if len(df) < self.range_lookback + 1:
             return None, None
         
-        recent = df.tail(self.range_lookback)
+        # Exclure la dernière bougie pour le calcul du range
+        # Prendre les range_lookback bougies avant la dernière
+        recent = df.iloc[-(self.range_lookback + 1):-1]
         range_high = recent["high"].max()
         range_low = recent["low"].min()
         
@@ -46,39 +53,34 @@ class BreakoutSetupV1:
     
     def detect_long_breakout(self, df: pd.DataFrame) -> bool:
         """
-        Détecte long breakout: close > max(range[-20:]).
-        
-        Args:
-            df: DataFrame avec dernière bougie à vérifier
-        
-        Returns:
-            True si long breakout confirmé
+        Détecte long breakout avec buffer ATR pour éviter bruit.
         """
         range_high, _ = self.calculate_range_bounds(df)
+        if range_high is None: return False
         
-        if range_high is None:
-            return False
+        # Calcul ATR pour buffer
+        from engine.structure.compression_detector import CompressionDetector
+        cd = CompressionDetector()
+        atr = cd.calculate_atr(df, 14).iloc[-1]
+        buffer = atr * 0.10 # 10% ATR buffer (Plus robuste)
         
         close = df["close"].iloc[-1]
-        return close > range_high
+        return close > (range_high + buffer)
     
     def detect_short_breakout(self, df: pd.DataFrame) -> bool:
         """
-        Détecte short breakout: close < min(range[-20:]).
-        
-        Args:
-            df: DataFrame avec dernière bougie à vérifier
-        
-        Returns:
-            True si short breakout confirmé
+        Détecte short breakout avec buffer ATR.
         """
         _, range_low = self.calculate_range_bounds(df)
+        if range_low is None: return False
         
-        if range_low is None:
-            return False
+        from engine.structure.compression_detector import CompressionDetector
+        cd = CompressionDetector()
+        atr = cd.calculate_atr(df, 14).iloc[-1]
+        buffer = atr * 0.05 # 5% ATR buffer
         
         close = df["close"].iloc[-1]
-        return close < range_low
+        return close < (range_low - buffer)
     
     def get_breakout_signal(self, df: pd.DataFrame) -> Optional[str]:
         """
