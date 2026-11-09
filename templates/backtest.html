@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtesting Engine - Trading Bot</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #45a049; }
+        .result { margin-top: 20px; padding: 15px; background-color: #e8f5e8; border-radius: 4px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Backtesting Engine</h1>
+        <p>Run historical backtests on your trading strategies</p>
+        
+        <form id="backtestForm">
+            <div class="form-group">
+                <label for="instrument">Instrument:</label>
+                <select id="instrument" name="instrument">
+                    <option value="NQ">NQ (NASDAQ 100)</option>
+                    <option value="ES">ES (S&P 500)</option>
+                    <option value="BTC">BTC (Bitcoin)</option>
+                    <option value="ETH">ETH (Ethereum)</option>
+                    <option value="CL">CL (Crude Oil)</option>
+                    <option value="GC">GC (Gold)</option>
+                    <option value="SI">SI (Silver)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="data_source">Data Source:</label>
+                <select id="data_source" name="data_source">
+                    <option value="yahoo">Yahoo Finance</option>
+                    <option value="polygon">Polygon (Premium)</option>
+                    <option value="local_csv">Local CSV Files</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="start_date">Start Date:</label>
+                <input type="date" id="start_date" name="start_date" value="2024-01-01">
+            </div>
+            
+            <div class="form-group">
+                <label for="end_date">End Date:</label>
+                <input type="date" id="end_date" name="end_date" value="2024-06-30">
+            </div>
+            
+            <div class="form-group">
+                <label for="initial_capital">Initial Capital ($):</label>
+                <input type="number" id="initial_capital" name="initial_capital" value="10000" step="100">
+            </div>
+            
+            <button type="submit">🚀 Run Backtest</button>
+        </form>
+        
+        <div id="result" class="result">
+            <h2>Backtest Results</h2>
+            <p id="results-content"></p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('backtestForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const instrument = formData.get('instrument');
+            const data_source = formData.get('data_source');
+            const start_date = formData.get('start_date');
+            const end_date = formData.get('end_date');
+            const initial_capital = formData.get('initial_capital');
+            
+            try {
+                const response = await fetch('/api/bt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        inst: instrument,
+                        st: start_date,
+                        ed: end_date,
+                        ds: data_source,
+                        initial_capital: parseFloat(initial_capital)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    document.getElementById('results-content').innerHTML = `
+                        <p><strong>Total Return:</strong> ${(parseFloat(data.res.total_return) * 100).toFixed(2)}%</p>
+                        <p><strong>CAGR:</strong> ${(parseFloat(data.res.cagr) * 100).toFixed(2)}%</p>
+                        <p><strong>Sharpe Ratio:</strong> ${parseFloat(data.res.sharpe_ratio).toFixed(2)}</p>
+                        <p><strong>Max Drawdown:</strong> ${(parseFloat(data.res.max_drawdown) * 100).toFixed(2)}%</p>
+                        <p><strong>Win Rate:</strong> ${(parseFloat(data.res.win_rate) * 100).toFixed(2)}%</p>
+                    `;
+                    document.getElementById('result').style.display = 'block';
+                } else {
+                    alert('Error: ' + (data.err || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error running backtest: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html>

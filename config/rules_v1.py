@@ -4,100 +4,104 @@ Configuration officielle du système de trading algorithmique futures intraday.
 Toute déviation = défilement/fund failure.
 """
 
-# ===== INSTRUMENTS & SESSIONS =====
-INSTRUMENTS = ["NQ", "ES"]
-BASE_TIMEFRAME = "15m"  # 15 minutes uniquement
-CONTEXT_TIMEFRAMES = ["1h", "4h"]  # H1 / H4
-MACRO_TIMEFRAME = "1d"  # Daily
+from config.base_config import BaseConfig
+from typing import Any, Dict
 
-# Sessions trading autorisées (Plus large : 7:00 AM - 4:00 PM EST)
-TRADING_SESSION_UTC_START = 12  # 7:00 AM EST
-TRADING_SESSION_UTC_END = 21  # 4:00 PM EST (clôture NYSE)
+class RulesV1(BaseConfig):
+    # ===== INSTRUMENTS & SESSIONS =====
+    VERSION = "v1_FROZEN"
+    LOCKED = True
+    INSTRUMENTS = ["NQ", "ES"]
+    BASE_TIMEFRAME = "15m"
+    CONTEXT_TIMEFRAMES = ["1h", "4h"]
+    MACRO_TIMEFRAME = "1d"
 
-# ===== UNIVERS DE DONNÉES =====
-DATA_SOURCES = {
-    "futures_prices": "CME",  # NQ/ES
-    "vix": "Yahoo Finance / Bloomberg",
-    "us10y_yield": "US Treasury / Federal Reserve",
-    "calendar": "Investing.com / Economic Calendar",
-}
+    # Sessions trading autorisées (8:00 AM - 3:00 PM ET)
+    TRADING_SESSION_UTC_START = 12  # 8:00 AM ET
+    TRADING_SESSION_UTC_END = 19    # 3:00 PM ET
 
-# ===== SETUP v1: BREAKOUT COMPRESSION =====
-# Détection compression (ATR-based, plus robuste que BB)
-COMPRESSION_CONFIG = {
-    "atr_period": 14,
-    "atr_lookback": 50,
-    "range_lookback": 20,
-    "atr_ratio_threshold": 0.8,   # PRO : Ne trade que les vraies compressions
-    "range_ratio_threshold": 2.5,  # PRO : Range resserré pour éviter les faux breakouts
-}
+    # ===== UNIVERS DE DONNÉES =====
+    DATA_SOURCES = {
+        "futures_prices": "CME",  # NQ/ES
+        "vix": "Yahoo Finance / Bloomberg",
+        "us10y_yield": "US Treasury / Federal Reserve",
+        "calendar": "Investing.com / Economic Calendar",
+    }
 
-# Breakout confirmé: close > high range OU close < low range
-BREAKOUT_CONFIG = {
-    "range_lookback": 20,
-}
+    # ===== SETUP v1: BREAKOUT COMPRESSION =====
+    COMPRESSION_CONFIG = {
+        "atr_period": 14,
+        "atr_lookback": 50,
+        "range_lookback": 20,
+        "atr_ratio_threshold": 0.75,   # PRD: ATR(14) < 0.75 * ATR(50)
+        "range_ratio_threshold": 1.5,  # PRD: Range(20) < 1.5 * ATR(14)
+    }
 
-# ===== FILTRE MACRO (MOINS RESTRICTIF) =====
-MACRO_FILTER_CONFIG = {
-    "risk_on_vix": 25,  # VIX < 25 = long autorisé
-    "risk_off_vix": 35,  # VIX > 35 = short only ou no trade
-    "yield_rules": {
-        "stable_or_rising": "long_ok",
-        "sharp_decline": "short_only_or_no_trade",
-    },
-}
+    BREAKOUT_CONFIG = {
+        "range_lookback": 20,
+    }
 
-# ===== FILTRE CALENDRIER (BLACKOUT) =====
-CALENDAR_FILTER_CONFIG = {
-    "blackout_events": [
-        "FOMC",
-        "CPI",
-        "NFP",
-        "Payrolls",
-    ],
-    "blackout_days": ["rollover_days"],
-    "blackout_buffer_days": 1,  # Veille + lendemain d'événements majeurs
-}
+    # ===== FILTRE MACRO =====
+    MACRO_FILTER_CONFIG = {
+        "risk_on_vix": 18,  # PRD: VIX < 18 = long autorisé
+        "risk_off_vix": 22, # PRD: VIX > 22 = short only
+        "yield_rules": {
+            "stable_or_rising": "long_ok",
+            "sharp_decline": "short_only_or_no_trade",
+        },
+    }
 
-# ===== RISK MANAGEMENT =====
-RISK_CONFIG = {
-    "risk_per_trade": 0.02,   # 2% (Gestion professionnelle)
-    "max_daily_loss": 0.06,   # 6.0% (Marge de manoeuvre)
-    "max_trades_per_day": 10, # 10 trades (Liberté totale)
-}
+    # ===== FILTRE CALENDRIER (BLACKOUT) =====
+    CALENDAR_FILTER_CONFIG = {
+        "blackout_events": [
+            "FOMC",
+            "CPI",
+            "NFP",
+            "Payrolls",
+        ],
+        "blackout_days": ["rollover_days"],
+        "blackout_buffer_days": 1,
+    }
 
-# ===== PRISE DE POSITION =====
-POSITION_CONFIG = {
-    "stop_loss_placement": "opposite_side_of_range",
-    "take_profit_ratio": 2.5,  # 2.5R (Plus réaliste pour les futurs)
-    "trailing_stop": False,
-    "breakeven": True,
-}
+    # ===== RISK MANAGEMENT =====
+    RISK_CONFIG = {
+        "risk_per_trade": 0.0075,  # 0.75% (PRD)
+        "max_daily_loss": 0.025,   # 2.5% (PRD)
+        "max_trades_per_day": 2,   # 2 (PRD)
+    }
 
-# ===== SESSION TRADING =====
-SESSION_CONFIG = {
-    "rth_open": "8:00 AM ET",
-    "rth_close": "3:00 PM ET",
-    "utc_start": TRADING_SESSION_UTC_START,
-    "utc_end": TRADING_SESSION_UTC_END,
-}
+    # ===== PRISE DE POSITION =====
+    POSITION_CONFIG = {
+        "stop_loss_placement": "opposite_side_of_range",
+        "take_profit_ratio": 3.0,  # 3R (PRD)
+        "trailing_stop": False,
+        "breakeven": True,
+    }
 
-# ===== ONE-TRADE-AT-A-TIME RULE =====
-CONCURRENT_RULES = {
-    "max_concurrent_positions": 1,  # Une seule position ouverte
-    "priority_instrument": "NQ",  # NQ en risk-on
-    "fallback_instrument": "ES",  # ES seulement si NQ non tradable
-}
+    # ===== SESSION TRADING =====
+    SESSION_CONFIG = {
+        "rth_open": "8:00 AM ET",
+        "rth_close": "3:00 PM ET",
+        "utc_start": TRADING_SESSION_UTC_START,
+        "utc_end": TRADING_SESSION_UTC_END,
+    }
 
-# ===== KPI CIBLES (STABILITÉ LONG TERME) =====
-TARGET_KPI = {
-    "max_drawdown_pct": 3.5,  # DD < 3.5%
-    "target_monthly_return_pct": 5.0,  # ≥ 5% mensuel moyen
-    "minimum_track_record_months": 6,  # Stabilité sur ≥ 6 mois
-}
+    # ===== ONE-TRADE-AT-A-TIME RULE =====
+    CONCURRENT_RULES = {
+        "max_concurrent_positions": 1,
+        "priority_instrument": "NQ",
+        "fallback_instrument": "ES",
+    }
 
-# ===== RÈGLES ANTI-ÉGO (PROTECTION) =====
-FROZEN_RULES = """
+    # ===== KPI CIBLES (STABILITÉ LONG TERME) =====
+    TARGET_KPI = {
+        "max_drawdown_pct": 3.5,
+        "target_monthly_return_pct": 5.0,
+        "minimum_track_record_months": 6,
+    }
+
+    # ===== RÈGLES ANTI-ÉGO (PROTECTION) =====
+    FROZEN_RULES = """
 ❌ PAS d'ajout de setup avant 50+ trades backtestés
 ❌ PAS de "juste un petit trailing"
 ❌ PAS d'optimisation paramètre par paramètre
@@ -106,25 +110,27 @@ FROZEN_RULES = """
 Chaque exception tue un futur fund manager.
 """
 
-# Version gelée - DO NOT TOUCH
-VERSION = "v1_FROZEN"
-LOCKED = True
+# Instance for backward compatibility and easy import
+rules_v1 = RulesV1()
 
-# ===== EXPORT FOR INTERFACE =====
-# Complete frozen configuration for web interface and documentation
-vv1_FROZEN = {
-    "VERSION": "v1_FROZEN",
-    "LOCKED": True,
-    "INSTRUMENTS": INSTRUMENTS,
-    "BASE_TIMEFRAME": BASE_TIMEFRAME,
-    "CONTEXT_TIMEFRAMES": CONTEXT_TIMEFRAMES,
-    "MACRO_TIMEFRAME": MACRO_TIMEFRAME,
-    "DATA_SOURCES": DATA_SOURCES,
-    "COMPRESSION_CONFIG": COMPRESSION_CONFIG,
-    "BREAKOUT_CONFIG": BREAKOUT_CONFIG,
-    "RISK_CONFIG": RISK_CONFIG,
-    "MACRO_FILTER_CONFIG": MACRO_FILTER_CONFIG,
-    "CALENDAR_FILTER_CONFIG": CALENDAR_FILTER_CONFIG,
-    "POSITION_CONFIG": POSITION_CONFIG,
-    "SESSION_CONFIG": SESSION_CONFIG,
-}
+# Backward compatibility with old imports (direct access to variables)
+VERSION = rules_v1.VERSION
+LOCKED = rules_v1.LOCKED
+INSTRUMENTS = rules_v1.INSTRUMENTS
+BASE_TIMEFRAME = rules_v1.BASE_TIMEFRAME
+CONTEXT_TIMEFRAMES = rules_v1.CONTEXT_TIMEFRAMES
+MACRO_TIMEFRAME = rules_v1.MACRO_TIMEFRAME
+DATA_SOURCES = rules_v1.DATA_SOURCES
+COMPRESSION_CONFIG = rules_v1.COMPRESSION_CONFIG
+BREAKOUT_CONFIG = rules_v1.BREAKOUT_CONFIG
+MACRO_FILTER_CONFIG = rules_v1.MACRO_FILTER_CONFIG
+CALENDAR_FILTER_CONFIG = rules_v1.CALENDAR_FILTER_CONFIG
+RISK_CONFIG = rules_v1.RISK_CONFIG
+POSITION_CONFIG = rules_v1.POSITION_CONFIG
+SESSION_CONFIG = rules_v1.SESSION_CONFIG
+CONCURRENT_RULES = rules_v1.CONCURRENT_RULES
+TARGET_KPI = rules_v1.TARGET_KPI
+FROZEN_RULES = rules_v1.FROZEN_RULES
+
+# vv1_FROZEN for the web interface
+vv1_FROZEN = rules_v1.to_dict()

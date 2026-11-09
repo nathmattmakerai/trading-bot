@@ -1,21 +1,254 @@
 """FTMO Futures Bot - Web Interface"""
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import requests
 from datetime import datetime
 import json
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    filename='logs/app.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 try:
     from main import TradingBot
     from config.rules_v1 import vv1_FROZEN
+    # Import our enhanced sentiment analysis
+    from data.sentiment_analyzer import get_market_sentiment
 except Exception as e:
-    print(f"Error importing: {e}")
+    logger.error(f"Error importing modules: {e}")
     exit(1)
 
 app = Flask(__name__)
 CORS(app)
 bot = None
+
+# Rate Limiting
+RATE_LIMIT_FILE = "rate_limit.json"
+RATE_LIMIT_MAX = 100
+RATE_LIMIT_WINDOW = 86400
+
+def load_rate_limit_data():
+    if os.path.exists(RATE_LIMIT_FILE):
+        try:
+            with open(RATE_LIMIT_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {"count": 0, "reset_time": datetime.now().timestamp()}
+    return {"count": 0, "reset_time": datetime.now().timestamp()}
+
+def save_rate_limit_data(data):
+    try:
+        with open(RATE_LIMIT_FILE, 'w') as f:
+            json.dump(data, f)
+    except:
+        pass
+
+def check_rate_limit():
+    data = load_rate_limit_data()
+    current_time = datetime.now().timestamp()
+    
+    if current_time - data["reset_time"] > RATE_LIMIT_WINDOW:
+        data = {"count": 0, "reset_time": current_time}
+        save_rate_limit_data(data)
+        return True, 0
+    
+    if data["count"] >= RATE_LIMIT_MAX:
+        return False, data["count"]
+    
+    data["count"] += 1
+    save_rate_limit_data(data)
+    return True, data["count"]
+
+def get_rate_limit_status():
+    data = load_rate_limit_data()
+    current_time = datetime.now().timestamp()
+    time_remaining = max(0, RATE_LIMIT_WINDOW - (current_time - data["reset_time"]))
+    return {"count": data["count"], "max": RATE_LIMIT_MAX, "time_remaining": int(time_remaining)}
+
+CONFIG_FILE = "config_editable.json"
+
+def load_editable_config():
+    """Load editable configuration"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    # Return default config from vv1_FROZEN
+    cfg = {}
+    for k, v in vv1_FROZEN.items():
+        if isinstance(v, dict):
+            for k2, v2 in v.items():
+                if not isinstance(v2, dict):
+                    cfg[k2] = v2
+    return cfg
+
+def save_editable_config(config):
+    """Save editable configuration"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except:
+        return False
+
+def init_bot():
+    global bot
+    # Ensure logs directory exists
+    os.makedirs("logs", exist_ok=True)
+    logger.info("Initializing TradingBot...")
+    try:
+        bot = TradingBot(starting_balance=10000.0)
+        logger.info("TradingBot initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize TradingBot: {e}")
+        raise
+
+def get_sp500_news():
+    return [
+        {"title": "S&P 500 jumps 1.2% on positive data", "source": "CNBC", "time": "Today"},
+        {"title": "Tech stocks lead gains", "source": "Bloomberg", "time": "Today"},
+        {"title": "Market breadth improves", "source": "Reuters", "time": "Today"},
+        {"title": "VIX falls to 3-month low", "source": "MarketWatch", "time": "Today"},
+        {"title": "Earnings beat expectations", "source": "CNBC", "time": "Today"},
+        {"title": "Index closes at record high", "source": "Bloomberg", "time": "Today"},
+        {"title": "Fed signals patience", "source": "Reuters", "time": "Today"},
+        {"title": "Market sentiment improves", "source": "MarketWatch", "time": "Today"},
+        {"title": "Strong employment data", "source": "CNBC", "time": "Today"},
+        {"title": "Inflation concerns ease", "source": "Bloomberg", "time": "Today"}
+    ]
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    init_bot()
+    return render_template('dashboard.html')
+
+@app.route('/api/status')
+def status():
+    try:
+        init_bot()
+        return jsonify({"status": "ok", "message": "System is running"})
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/backtest/run', methods=['POST'])
+def backtest_run():
+    """Run a backtest with the specified parameters"""
+    logger.info("Backtest run endpoint called")
+    try:
+        init_bot()
+        # Get JSON data from request
+        d = request.get_json()
+        if not d:
+            logger.warning("No JSON data received in backtest request")
+            return jsonify({"ok": False, "err": "Invalid JSON data"}), 400
+        
+        # Validate required parameters
+        required_fields = ['inst', 'st', 'ed']
+        for field in required_fields:
+            if field not in d:
+                logger.warning(f"Missing required field: {field}")
+                return jsonify({"ok": False, "err": f"Missing required field: {field}"}), 400
+        
+        instrument = d['inst']
+        start_date = d['st']
+        end_date = d['ed']
+        
+        logger.info(f"Starting backtest for {instrument} from {start_date} to {end_date}")
+        
+        # Run the backtest
+        result = bot.backtest(instrument, start_date, end_date)
+        
+        logger.info("Backtest completed successfully")
+        return jsonify({"ok": True, "res": result})
+        
+    except Exception as e:
+        error_msg = f"Error during backtest: {str(e)}"
+        logger.error(error_msg, exc_info=True)  # Log the full traceback
+        return jsonify({"ok": False, "err": error_msg}), 500
+
+@app.route('/api/conf')
+def conf():
+    return jsonify(load_editable_config())
+
+@app.route('/api/save-config', methods=['POST'])
+def save_config():
+    try:
+        config_data = request.json
+        if save_editable_config(config_data):
+            return jsonify({"success": True, "message": "Configuration saved"})
+        else:
+            return jsonify({"success": False, "message": "Failed to save configuration"})
+    except Exception as e:
+        logger.error(f"Error saving config: {e}")
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/test')
+def test():
+    try:
+        init_bot()
+        return jsonify({"success": True, "msg": "System Ready"})
+    except Exception as e:
+        logger.error(f"Test failed: {e}")
+        return jsonify({"success": False, "err": str(e)})
+
+@app.route('/api/evolve', methods=['POST'])
+def evolve():
+    try:
+        init_bot()
+        d = request.json
+        
+        # Get evolution parameters from request
+        instrument = d.get('inst', 'NQ')
+        start_date = d.get('st', '2024-01-01')
+        end_date = d.get('ed', '2024-06-30')
+        generations = d.get('gens', 1000)
+        population_size = d.get('pop', 50)
+        mutation_rate = d.get('mut', 0.1)
+        
+        # Run evolutionary backtest
+        result = bot.evolve_backtest(
+            instrument=instrument,
+            start_date=start_date,
+            end_date=end_date,
+            generations=generations,
+            population_size=population_size,
+            mutation_rate=mutation_rate
+        )
+        
+        return jsonify({"ok": True, "res": result})
+    except Exception as e:
+        error_msg = f"Error in evolve: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return jsonify({"ok": False, "err": error_msg}), 500
+
+@app.route('/api/news')
+def news():
+    return jsonify({"news": get_sp500_news()})
+
+# Global error handlers to ensure JSON responses
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Unhandled exception: {e}", exc_info=True)
+    return jsonify({"ok": False, "err": "Internal server error"}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    logger.warning(f"404 error: {error}")
+    return jsonify({"ok": False, "err": "Endpoint not found"}), 404
+
 
 # Rate Limiting
 RATE_LIMIT_FILE = "rate_limit.json"
@@ -777,16 +1010,34 @@ def test():
     except Exception as e:
         return jsonify({"success": False, "err": str(e)})
 
-@app.route('/api/bt', methods=['POST'])
+@app.route('/api/evolve', methods=['POST'])
 @require_rate_limit
-def bt():
+def evolve():
     try:
         init_bot()
         d = request.json
-        s = bot.backtest(d['inst'], d['st'], d['ed'])
-        return jsonify({"ok": True, "res": {k: str(round(v, 2) if isinstance(v, float) else v) for k, v in s.items()}})
+        
+        # Get evolution parameters from request
+        instrument = d.get('inst', 'NQ')
+        start_date = d.get('st', '2024-01-01')
+        end_date = d.get('ed', '2024-06-30')
+        generations = d.get('gens', 1000)
+        population_size = d.get('pop', 50)
+        mutation_rate = d.get('mut', 0.1)
+        
+        # Run evolutionary backtest
+        result = bot.evolve_backtest(
+            instrument=instrument,
+            start_date=start_date,
+            end_date=end_date,
+            generations=generations,
+            population_size=population_size,
+            mutation_rate=mutation_rate
+        )
+        
+        return jsonify({"ok": True, "res": result})
     except Exception as e:
-        return jsonify({"ok": False, "err": str(e)})
+        return jsonify({"ok": False, "err": str(e)}), 500
 
 @app.route('/api/news')
 @require_rate_limit
@@ -818,6 +1069,23 @@ def get_holdings_api():
 def get_holdings_news_api():
     return jsonify({"news": get_holdings_news()})
 
+@app.route('/backtest')
+def backtest_ui():
+    """Serve the backtesting UI"""
+    return render_template('backtest.html')
+
+@app.route('/api/backtest/run', methods=['POST'])
+@require_rate_limit
+def backtest_run():
+    """Run a backtest with the specified parameters"""
+    try:
+        init_bot()
+        d = request.json
+        s = bot.backtest(d['inst'], d['st'], d['ed'])
+        return jsonify({"ok": True, "res": {k: str(round(v, 2) if isinstance(v, float) else v) for k, v in s.items()}})
+    except Exception as e:
+        return jsonify({"ok": False, "err": str(e)})
+
 @app.route('/api/holdings', methods=['POST'])
 @require_rate_limit
 def update_holdings():
@@ -848,6 +1116,78 @@ def predictions():
 @app.route('/api/rate-limit')
 def rate_limit_status():
     return jsonify(get_rate_limit_status())
+
+@app.route('/api/evolve-params')
+@require_rate_limit
+def evolve_params():
+    try:
+        init_bot()
+        # Return the evolution parameters that can be used for optimization
+        params = {
+            'rsi_period': [5, 10, 15, 20, 25, 30],
+            'ema_fast': [5, 10, 15, 20, 25, 30],
+            'ema_slow': [20, 30, 50, 70, 100, 150],
+            'stop_loss_pct': [0.005, 0.01, 0.015, 0.02, 0.025, 0.03],
+            'take_profit_pct': [1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+            'position_size': [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
+        }
+        return jsonify({"ok": True, "params": params})
+    except Exception as e:
+        return jsonify({"ok": False, "err": str(e)}), 500
+
+@app.route('/api/backtest', methods=['POST'])
+def api_backtest():
+    """
+    API endpoint for running backtests.
+    
+    Returns:
+        JSON response with backtest results or error
+    """
+    try:
+        # Check rate limit
+        allowed, count = check_rate_limit()
+        if not allowed:
+            return jsonify({
+                'status': 'error',
+                'message': 'Rate limit exceeded',
+                'rate_limit': get_rate_limit_status()
+            }), 429
+        
+        data = request.get_json()
+        instrument = data.get('instrument', 'NQ')
+        start_date = data.get('start_date', '2023-01-01')
+        end_date = data.get('end_date', '2023-12-31')
+        
+        logger.info(f"API backtest requested for {instrument} from {start_date} to {end_date}")
+        
+        # Initialize bot if needed
+        if not bot:
+            init_bot()
+            
+        # Run backtest
+        result = bot.run_backtest(instrument, start_date, end_date)
+        
+        # Return JSON response
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in API backtest: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': 'Backtest failed due to an error',
+            'error': str(e)
+        }), 500
+
+@app.route('/api/market-sentiment')
+@require_rate_limit
+def market_sentiment():
+    try:
+        init_bot()
+        # Get current market sentiment from our enhanced analyzer
+        sentiment = get_market_sentiment()
+        return jsonify({"ok": True, "sentiment": sentiment})
+    except Exception as e:
+        return jsonify({"ok": False, "err": str(e)}), 500
 
 if __name__ == '__main__':
     print("🤖 FTMO Bot Interface | http://127.0.0.1:5001")

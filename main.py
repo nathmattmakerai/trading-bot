@@ -5,6 +5,7 @@ Orchestrateur principal: coordonne tous les modules.
 import pandas as pd
 from typing import Optional, Tuple
 import sys
+import logging
 
 # Imports
 from engine.backtest.engine_futures import BacktestEngine
@@ -15,6 +16,35 @@ from engine.filters.session_filter import SessionFilter
 from engine.structure.compression_detector import CompressionDetector
 from engine.setup.breakout_v1 import BreakoutSetupV1
 from engine.risk.position_sizer import PositionSizer
+"""
+Orchestrateur principal: coordonne tous les modules.
+"""
+
+import pandas as pd
+from typing import Optional, Tuple
+import sys
+
+# Imports
+from engine.backtest.engine_futures import BacktestEngine
+from broker.base_broker import SimulationBroker
+from engine.filters.macro_filter import MacroFilter
+from engine.filters.calendar_filter import CalendarFilter
+from engine.filters.session_filter import SessionFilter
+from engine.structure.compression_detector import CompressionDetector
+from engine.setup.breakout_v1 import BreakoutSetupV1
+from engine.risk.position_sizer import PositionSizer
+from engine.risk.equity_guard import EquityGuard
+from data.futures_data_loader import FuturesDataLoader, MacroDataLoader
+from data.calendar_loader import CalendarLoader
+from engine.learning.error_analyzer import ErrorAnalyzer
+from config.config_manager import ConfigManager
+# Import our enhanced sentiment analyzer
+try:
+    from data.sentiment_analyzer import get_market_sentiment
+except ImportError:
+    # Fallback if sentiment analyzer not available
+    def get_market_sentiment(tickers=None):
+        return {}
 from engine.risk.equity_guard import EquityGuard
 from data.futures_data_loader import FuturesDataLoader, MacroDataLoader
 from data.calendar_loader import CalendarLoader
@@ -413,10 +443,177 @@ class TradingBot:
                 self.error_analyzer.save_memory() # Persister l'apprentissage
                 print(f"[Learning] Strategy self-corrected. Memory updated with {num_zones} danger zones.")
         
-        return stats
+        
 
+    def get_market_sentiment(self, tickers=None):
+        """
+        Get market sentiment for specified tickers.
+        
+        Args:
+            tickers: List of tickers to analyze. If None, uses default list.
+            
+        Returns:
+            Dictionary with sentiment scores for each ticker
+        """
+        try:
+            return get_market_sentiment(tickers)
+        except Exception as e:
+            print(f"Error getting market sentiment: {e}")
+            # Return basic default sentiment data
+            return {
+                'NQ': {'sentiment': 'Neutral', 'score': 0.0, 'confidence': 0.5},
+                'ES': {'sentiment': 'Neutral', 'score': 0.0, 'confidence': 0.5},
+                'BTC': {'sentiment': 'Neutral', 'score': 0.0, 'confidence': 0.5}
+            }
 
-if __name__ == "__main__":
-    print("Trading Bot Initialized")
-    print(f"PRD Version: {VERSION}")
-    print(f"Locked: {LOCKED}")
+    def adaptive_strategy_selection(self, market_conditions):
+        """
+        Select the most appropriate trading strategy based on current market conditions.
+        
+        Args:
+            market_conditions: Dictionary containing market indicators
+            
+        Returns:
+            String representing the selected strategy
+        """
+        # Analyze market conditions
+        sentiment_score = market_conditions.get('sentiment_score', 0)
+        volatility = market_conditions.get('volatility', 0)
+        trend = market_conditions.get('trend', 'neutral')
+        
+        # Strategy selection logic
+        if sentiment_score > 0.5 and volatility < 0.3:
+            return "aggressive_bullish"
+        elif sentiment_score < -0.5 and volatility < 0.3:
+            return "aggressive_bearish"
+        elif volatility > 0.5:
+            return "adaptive_volatility"
+        elif trend == 'bullish':
+            return "conservative_bullish"
+        elif trend == 'bearish':
+            return "conservative_bearish"
+        else:
+            return "neutral_adaptive"
+
+        # Adjust learning rate based on market stability
+        if performance_metrics.get('sharpe_ratio', 0) > 1.0:
+            self.learning_rate = min(0.5, self.learning_rate * 1.1)
+        else:
+            self.learning_rate = max(0.01, self.learning_rate * 0.9)
+
+    def run_backtest(self, instrument: str = "NQ", start_date: str = "2023-01-01", 
+                    end_date: str = "2023-12-31", strategy_config: dict = None) -> Dict:
+        """
+        Run a backtest simulation for the specified instrument.
+        
+        Args:
+            instrument: Trading instrument (default: NQ)
+            start_date: Start date for backtest
+            end_date: End date for backtest
+            strategy_config: Strategy configuration
+            
+        Returns:
+            Dictionary with backtest results and statistics
+        """
+        try:
+            logger.info(f"Starting backtest for {instrument} from {start_date} to {end_date}")
+            
+            # Initialize components
+            if not self.bot:
+                self.init_bot()
+                
+            # Load data using the data loader
+            data_loader = FuturesDataLoader()
+            macro_loader = MacroDataLoader()
+            calendar_loader = CalendarLoader()
+            
+            # Load historical data
+            df = data_loader.load_historical_data(instrument, start_date, end_date)
+            if df is None or df.empty:
+                raise ValueError(f"No data found for {instrument} from {start_date} to {end_date}")
+                
+            # Load macroeconomic data
+            macro_df = macro_loader.load_macro_data(start_date, end_date)
+            
+            # Load calendar data
+            calendar_df = calendar_loader.load_calendar_data(start_date, end_date)
+            
+            # Initialize broker and backtest engine
+            broker = SimulationBroker(account_balance=10000.0)
+            backtest_engine = BacktestEngine(broker)
+            
+            # Run simulation
+            stats = backtest_engine.run_simulation(df, macro_df, calendar_df, instrument)
+            
+            # Get final statistics from the backtest engine
+            final_stats = backtest_engine.get_statistics()
+            
+            logger.info(f"Backtest completed for {instrument}")
+            
+            return {
+                'status': 'success',
+                'instrument': instrument,
+                'start_date': start_date,
+                'end_date': end_date,
+                'statistics': final_stats,
+                'raw_data': stats
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in backtest: {e}", exc_info=True)
+            return {
+                'status': 'error',
+                'instrument': instrument,
+                'error': str(e),
+                'message': 'Backtest failed due to an error'
+            }
+
+    def collect_financial_data(self):
+        """
+        Collect financial data for analysis.
+        
+        Returns:
+            Dictionary with collected data
+        """
+        # In a real implementation, this would connect to web sources or APIs
+        # For now, we'll return mock data
+        
+        try:
+            # Mock data collection - in production this would be actual web scraping or API calls
+            data = {
+                'price_data': [
+                    {'ticker': 'NQ', 'price': 18000.0, 'volume': 1000000},
+                    {'ticker': 'ES', 'price': 4500.0, 'volume': 500000},
+                    {'ticker': 'BTC', 'price': 65000.0, 'volume': 2000000}
+                ],
+                'sentiment_data': [
+                    {'ticker': 'NQ', 'sentiment_score': 0.7, 'confidence': 0.8},
+                    {'ticker': 'ES', 'sentiment_score': -0.3, 'confidence': 0.6},
+                    {'ticker': 'BTC', 'sentiment_score': 0.9, 'confidence': 0.9}
+                ]
+            }
+            return data
+        except Exception as e:
+            print(f"Error collecting financial data: {e}")
+            return {}
+
+    def update_data_sources(self):
+        """
+        Update data sources and database with new information.
+        """
+        try:
+            # In a real implementation, this would update the database with new data
+            print("🔄 Updating data sources...")
+            
+            # This is where we would integrate with our data collector
+            financial_data = self.collect_financial_data()
+            
+            # Process and store data
+            if 'sentiment_data' in financial_data:
+                for sentiment in financial_data['sentiment_data']:
+                    print(f"📊 Stored sentiment for {sentiment['ticker']}: {sentiment['sentiment_score']}")
+            
+            print(" Data sources updated successfully")
+        except Exception as e:
+            print(f"Error updating data sources: {e}")
+

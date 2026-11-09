@@ -11,18 +11,36 @@ try:
 except ImportError:
     yf = None
 
+try:
+    import polygon
+    POLYGON_AVAILABLE = True
+except ImportError:
+    POLYGON_AVAILABLE = False
+
 
 class FuturesDataLoader:
-    """Charge NQ/ES en 15m + resample vers H1/H4."""
-    
+    """Charge données futures avec support pour plusieurs instruments et sources."""
+
     def __init__(self, data_source: str = "yahoo"):
         """
         Args:
             data_source: Source de données ('yahoo', 'polygon', 'local_csv')
         """
         self.data_source = data_source
-        self.instruments = ["NQ", "ES"]
+        # Extended instrument support
+        self.instruments = ["NQ", "ES", "BTC", "ETH", "CL", "GC", "SI"]
         self.base_timeframe = "15m"
+        
+        # Instrument ticker mappings for different sources
+        self.ticker_map = {
+            "NQ": {"yahoo": "^NDX", "polygon": "O.NQ"},
+            "ES": {"yahoo": "^GSPC", "polygon": "O.SPX"},
+            "BTC": {"yahoo": "BTC-USD", "polygon": "O.BTC"},
+            "ETH": {"yahoo": "ETH-USD", "polygon": "O.ETH"},
+            "CL": {"yahoo": "CL=F", "polygon": "O.CL"},
+            "GC": {"yahoo": "GC=F", "polygon": "O.GC"},
+            "SI": {"yahoo": "SI=F", "polygon": "O.SI"},
+        }
         
     def fetch_futures_data(
         self,
