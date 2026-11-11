@@ -1,304 +1,149 @@
-# FTMO Trading Bot - PRD v1 (FROZEN)
+# FTMO Trading Bot System
 
-Algorithmic futures trading bot (NQ/ES) basé sur un setup unique de breakout compression avec risk management strict et filtrage macro. Conçu pour prop firm trading (FTMO, TopstepX).
+A comprehensive trading bot system for futures, stocks, and crypto markets with advanced backtesting capabilities.
 
-## 📋 Architecture Figée
-
-Toute cette architecture est **GELÉE pour v1**. Aucune modification sans approbation explicite.
+## Architecture Overview
 
 ```
-ftmo_futures_bot/
-├── config/
-│   └── rules_v1.py              # PRD codé (GELÉ)
-│
-├── data/
-│   ├── futures_data_loader.py   # NQ/ES 15m/H1/H4
-│   └── macro_data_loader.py     # VIX + US10Y
-│   └── calendar_loader.py       # FOMC/NFP/CPI/Rollover
-│
-├── engine/
+TradingBot (main orchestrator)
+├── Data Collection
+│   ├── crawler.py (web crawler for financial data)
+│   ├── stock_data_loader.py
+│   ├── futures_data_loader.py
+│   └── macro_data_loader.py
+├── Backtesting Engine
+│   └── engine_futures.py
+├── Trading Logic
 │   ├── filters/
-│   │   ├── macro_filter.py      # VIX-based risk regime
-│   │   ├── calendar_filter.py   # Event blackout
-│   │   └── session_filter.py    # RTH only
-│   │
+│   │   ├── macro_filter.py
+│   │   ├── calendar_filter.py
+│   │   └── session_filter.py
 │   ├── structure/
-│   │   └── compression_detector.py  # ATR-based range
-│   │
+│   │   └── compression_detector.py
 │   ├── setup/
-│   │   └── breakout_v1.py       # Setup unique
-│   │
-│   ├── risk/
-│   │   └── position_sizer.py    # 0.75% risk, whole contracts
-│   │
-│   └── backtest/
-│       └── engine_futures.py    # Moteur principal
-│
-├── broker/
-│   ├── base_broker.py           # Interface générique
-│   └── rithmic_broker.py        # TopstepX (simulation)
-│
-├── main.py                      # Orchestrateur
-└── tests/
-    └── validation_suite.py      # Tests unitaires
+│   │   └── breakout_v1.py
+│   └── risk/
+│       ├── position_sizer.py
+│       └── equity_guard.py
+└── Learning System
+    └── error_analyzer.py
 ```
 
-## 🎯 Paramètres Figés v1
+## Key Features
 
-### Timeframe
-- **Trading**: 15 minutes
-- **Context**: 1H, 4H
-- **Macro**: Daily
+### 1. Data Collection
+- **Web Crawler**: Collects stock, crypto, and futures data from Yahoo Finance
+- **Market Sentiment**: Analyzes sentiment for different asset classes
+- **Technical Indicators**: Calculates SMA, EMA, MACD, RSI, Bollinger Bands
+- **Flexible Data Sources**: Supports multiple financial data providers
 
-### Setup Unique
-Breakout bidirectionnel de compression
+### 2. Trading Logic
+- **Compression Detection**: Identifies market consolidation patterns
+- **Breakout Setup**: Detects breakout signals with confidence levels
+- **Multi-Filters**: Macro, Calendar, and Session filters
+- **Risk Management**: Position sizing, stop-loss, take-profit calculations
+- **Equity Guard**: Adaptive capital protection
 
-**Détection compression** (ATR-based):
-```
-ATR(14) < 0.75 × ATR(50)           ✓
-Range(20) < 1.5 × ATR(14)          ✓
-```
+### 3. Backtesting System
+- **Comprehensive Statistics**: Win rate, profit factor, Sharpe ratio, etc.
+- **Walk-Forward Analysis**: Robust testing across time periods
+- **Parameter Optimization**: Testing different strategy parameters
+- **Virtual Trade Handling**: Distinguishes real vs virtual trades
 
-**Breakout confirmé**:
-```
-Long:  close > max(high[-20:])
-Short: close < min(low[-20:])
-```
+### 4. Learning & Adaptation
+- **Error Analyzer**: Learns from trade outcomes
+- **Adaptive Strategy Selection**: Adjusts approach based on market conditions
+- **Performance Diagnostics**: Identifies strengths and weaknesses
 
-### Instruments
-- NQ (Nasdaq 100 futures)
-- ES (S&P 500 futures)
-- **One-trade-at-a-time**: Une seule position ouverte
-
-### Risk Management
-```
-Risk/trade:      0.75%
-Max daily loss:  2.5%
-Max trades/day:  2
-SL:              Côté opposé du range
-TP:              Fixe à 3R (pas de trailing)
-```
-
-### Filtres Obligatoires
-1. **Session**: RTH US uniquement (8:00 AM - 3:00 PM ET)
-2. **Calendrier**: Blackout FOMC, CPI, NFP, Rollover (veille + lendemain)
-3. **Macro**: 
-   - VIX < 18 & yields ↑ = Long autorisé
-   - VIX > 22 ou yields ↓ = Short only
-   - Entre les deux = Sélectif
-
-### KPI Cibles
-- Drawdown max: < 3.5%
-- Retour monthly: ≥ 5% en moyenne
-- Track record: ≥ 6 mois stable
-
-## 🚀 Installation
+## Installation
 
 ```bash
-# Clone repo
-git clone https://github.com/nathmattmakerai/trading-bot.git
+# Install required packages
+pip install pandas numpy yfinance requests
+
+# Clone the repository
+git clone <repository-url>
 cd trading-bot
-
-# Python 3.9+
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# ou
-venv\Scripts\activate  # Windows
-
-# Install dépendences
-pip install -r requirements.txt
 ```
 
-## 📚 Dépendences
+## Usage
 
-```
-pandas>=1.5.0
-numpy>=1.23.0
-yfinance>=0.2.28
-pandas-ta>=0.3.14b0
-```
-
-## 🧪 Tests Unitaires
-
+### Running Demo
 ```bash
-# Run full test suite
-python -m pytest tests/validation_suite.py -v
-
-# Run spécific test
-python -m pytest tests/validation_suite.py::TestCompressionDetector -v
+python demo_data_collection.py
 ```
 
-## 📊 Backtest
-
-### Étape 1: Backtest brut (setup seul)
-
+### Basic Backtesting
 ```python
 from main import TradingBot
 
-bot = TradingBot(starting_balance=10000)
-stats = bot.backtest(
-    instrument="NQ",
-    start_date="2024-01-01",
-    end_date="2024-12-31",
-)
+# Initialize bot
+bot = TradingBot(starting_balance=10000.0)
 
-print(f"Total trades: {stats['num_trades']}")
-print(f"Win rate: {stats['win_rate']:.1f}%")
-print(f"Max DD: {stats['max_drawdown_pct']:.2f}%")
+# Run backtest
+bot.backtest("NQ", "2024-01-01", "2024-12-31")
 ```
 
-### Étape 2: Analyse AVEC/SANS filtres
-
-Compare performance:
-- Setup seul
-- Setup + filtre calendrier
-- Setup + filtre macro
-- Setup + tous filtres
-
-### Étape 3: Stress test
-
-- Slippage 1-2 ticks
-- Commissions CME réalistes
-- Vérifier survie du système
-
-## 🔁 Logique Système (Résumé Exécutable)
-
-À chaque close de bougie 15m:
-
-```
-1. Vérifier session RTH autorisée
-2. Vérifier pas de blackout calendrier
-3. Vérifier filtre macro compatible
-4. Vérifier pas de position ouverte (one-at-a-time)
-5. Vérifier max trades/jour et daily loss
-6. Détecter compression
-7. Détecter breakout confirmé
-8. Calculer SL (côté opposé range) + TP (3R)
-9. Calculer taille position (0.75% risk, whole contracts)
-10. Exécuter trade
-11. Gérer jusqu'à TP / SL / fin de session
-```
-
-## ⚙️ Configuration
-
-Tous les paramètres sont dans `config/rules_v1.py`:
-
+### Data Collection
 ```python
-COMPRESSION_CONFIG = {
-    "atr_period": 14,
-    "atr_ratio_threshold": 0.75,
-    "range_lookback_period": 20,
-    "range_ratio_threshold": 1.5,
-}
+from data.crawler import FinancialDataCrawler
 
-RISK_CONFIG = {
-    "risk_per_trade": 0.0075,  # 0.75%
-    "max_daily_loss": 0.025,   # 2.5%
-    "max_trades_per_day": 2,
-}
+# Crawl financial data
+crawler = FinancialDataCrawler()
+data = crawler.crawl_all_data(period="6mo")
 
-# ... plus de config figée
+# Save collected data
+crawler.save_data(data, "collected_data.json")
 ```
 
-**⚠️ AUCUNE MODIFICATION** sans approbation.
+## Core Components
 
-## 🛡️ Règles Anti-Ego (PROTECTION)
+### 1. TradingBot
+Main orchestrator that coordinates all components.
 
-Ces règles vous protègent de vous-mêmes:
+### 2. Data Loaders
+- `FuturesDataLoader`: Loads futures data
+- `StockDataLoader`: Loads stock data  
+- `MacroDataLoader`: Loads macroeconomic indicators
 
-```
-❌ Pas d'ajout de setup avant 50+ trades backtestés
-❌ Pas de "juste un petit trailing"
-❌ Pas d'optimisation paramètre par paramètre
-❌ Pas de live sans backtest stable sur 6+ mois
+### 3. Backtesting Engine
+- `BacktestEngine`: Core backtesting functionality
+- `BacktestRunner`: Enhanced runner with statistics and analysis
 
-Chaque exception tue un futur fund manager.
-```
+### 4. Trading Logic Components
+- **Filters**: Apply market conditions (macro, calendar, session)
+- **Structure**: Detect compression patterns
+- **Setup**: Identify breakout opportunities
+- **Risk Management**: Position sizing and capital protection
 
-## 🔌 Broker Integration (TopstepX / FTMO)
+## Configuration
 
-### Simulation (Backtest)
-```python
-from broker.base_broker import SimulationBroker
+Default configurations are stored in `config/rules_v1.py`. You can customize:
+- Risk parameters
+- Breakout detection settings  
+- Filter conditions
+- Position sizing rules
 
-broker = SimulationBroker()
-# Exécution immédiate pour backtest
-```
+## Testing
 
-### Live (TopstepX)
-```python
-from broker.base_broker import RithmicBroker
-
-broker = RithmicBroker(connection_params={
-    "username": "your_user",
-    "password": "your_pass",
-    # ... config Rithmic
-})
-broker.connect()
+Run integration tests:
+```bash
+python test_integration.py
 ```
 
-*Note: API Rithmic à implémenter (placeholder disponible)*
-
-## 📈 Monitoring & Logging
-
-Le bot log automatiquement:
-- Chaque trade exécutée
-- Chaque raison filtre (pourquoi pas de trade)
-- Equity curve
-- PnL quotidien
-
-```python
-# Accéder equity curve
-equity_df = bot.backtest_engine.get_equity_curve()
-equity_df.plot()  # Visualise courbe
+Run demo:
+```bash
+python demo_data_collection.py
 ```
 
-## 🐛 Debugging
+## Contributing
 
-```python
-# Accéder aux statistiques détaillées
-stats = bot.backtest_engine.get_statistics()
-print(stats)
+1. Fork the repository
+2. Create feature branch
+3. Commit changes
+4. Push to branch
+5. Create pull request
 
-# Accéder à toutes les trades fermées
-for trade in bot.backtest_engine.closed_trades:
-    print(f"Trade #{trade.trade_id}: {trade.direction} "
-          f"{trade.pnl:.2f} ({trade.pnl_pct:.1f}%)")
-```
+## License
 
-## 📝 Checklist Technique
-
-- [x] Données: NQ/ES 15m + contexte H1/H4
-- [x] Macro: VIX + US10Y daily
-- [x] Calendrier: FOMC/CPI/NFP/Rollover blackout
-- [x] Setup: Compression ATR + Breakout
-- [x] Filtres: Session, Calendrier, Macro
-- [x] Risk: Position sizer 0.75%, max 2.5% DD daily
-- [x] Backtest: Engine avec equity curve
-- [x] Broker: Simulation + placeholder Rithmic
-- [x] Tests: Validation suite complète
-- [ ] **PROCHAINES ÉTAPES**:
-  - [ ] Récupérer données réelles CME
-  - [ ] Backtest 50+ trades
-  - [ ] Valider filtre améliore DD
-  - [ ] Stress test (slippage, commissions)
-  - [ ] Approuver pour live trading
-
-## 📞 Support
-
-Pour toute question ou issue:
-1. Vérifier console pour logs
-2. Vérifier tests unitaires (`tests/validation_suite.py`)
-3. Consulter docstrings du code
-
-## 📄 License
-
-Propriétaire. Utilisation restreinte à trading personnel/prop firm.
-
----
-
-**Version**: v1 (FROZEN)  
-**Date de création**: 6 février 2026  
-**Locked**: ✅ OUI
-
-Chaque modification doit passer par code review explicite.
+MIT License

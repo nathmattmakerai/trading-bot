@@ -49,6 +49,7 @@ from engine.risk.equity_guard import EquityGuard
 from data.futures_data_loader import FuturesDataLoader, MacroDataLoader
 from data.calendar_loader import CalendarLoader
 from engine.learning.error_analyzer import ErrorAnalyzer
+from data.crawler import FinancialDataCrawler
 
 # Configuration par défaut
 from config.rules_v1 import (
@@ -448,10 +449,10 @@ class TradingBot:
     def get_market_sentiment(self, tickers=None):
         """
         Get market sentiment for specified tickers.
-        
+
         Args:
             tickers: List of tickers to analyze. If None, uses default list.
-            
+
         Returns:
             Dictionary with sentiment scores for each ticker
         """
@@ -469,10 +470,10 @@ class TradingBot:
     def adaptive_strategy_selection(self, market_conditions):
         """
         Select the most appropriate trading strategy based on current market conditions.
-        
+
         Args:
             market_conditions: Dictionary containing market indicators
-            
+
         Returns:
             String representing the selected strategy
         """
@@ -480,7 +481,7 @@ class TradingBot:
         sentiment_score = market_conditions.get('sentiment_score', 0)
         volatility = market_conditions.get('volatility', 0)
         trend = market_conditions.get('trend', 'neutral')
-        
+
         # Strategy selection logic
         if sentiment_score > 0.5 and volatility < 0.3:
             return "aggressive_bullish"
@@ -501,55 +502,55 @@ class TradingBot:
         else:
             self.learning_rate = max(0.01, self.learning_rate * 0.9)
 
-    def run_backtest(self, instrument: str = "NQ", start_date: str = "2023-01-01", 
+    def run_backtest(self, instrument: str = "NQ", start_date: str = "2023-01-01",
                     end_date: str = "2023-12-31", strategy_config: dict = None) -> Dict:
         """
         Run a backtest simulation for the specified instrument.
-        
+
         Args:
             instrument: Trading instrument (default: NQ)
             start_date: Start date for backtest
             end_date: End date for backtest
             strategy_config: Strategy configuration
-            
+
         Returns:
             Dictionary with backtest results and statistics
         """
         try:
             logger.info(f"Starting backtest for {instrument} from {start_date} to {end_date}")
-            
+
             # Initialize components
             if not self.bot:
                 self.init_bot()
-                
+
             # Load data using the data loader
             data_loader = FuturesDataLoader()
             macro_loader = MacroDataLoader()
             calendar_loader = CalendarLoader()
-            
+
             # Load historical data
             df = data_loader.load_historical_data(instrument, start_date, end_date)
             if df is None or df.empty:
                 raise ValueError(f"No data found for {instrument} from {start_date} to {end_date}")
-                
+
             # Load macroeconomic data
             macro_df = macro_loader.load_macro_data(start_date, end_date)
-            
+
             # Load calendar data
             calendar_df = calendar_loader.load_calendar_data(start_date, end_date)
-            
+
             # Initialize broker and backtest engine
             broker = SimulationBroker(account_balance=10000.0)
             backtest_engine = BacktestEngine(broker)
-            
+
             # Run simulation
             stats = backtest_engine.run_simulation(df, macro_df, calendar_df, instrument)
-            
+
             # Get final statistics from the backtest engine
             final_stats = backtest_engine.get_statistics()
-            
+
             logger.info(f"Backtest completed for {instrument}")
-            
+
             return {
                 'status': 'success',
                 'instrument': instrument,
@@ -558,7 +559,7 @@ class TradingBot:
                 'statistics': final_stats,
                 'raw_data': stats
             }
-            
+
         except Exception as e:
             logger.error(f"Error in backtest: {e}", exc_info=True)
             return {
@@ -571,13 +572,13 @@ class TradingBot:
     def collect_financial_data(self):
         """
         Collect financial data for analysis.
-        
+
         Returns:
             Dictionary with collected data
         """
         # In a real implementation, this would connect to web sources or APIs
         # For now, we'll return mock data
-        
+
         try:
             # Mock data collection - in production this would be actual web scraping or API calls
             data = {
@@ -604,16 +605,50 @@ class TradingBot:
         try:
             # In a real implementation, this would update the database with new data
             print("🔄 Updating data sources...")
-            
+
             # This is where we would integrate with our data collector
             financial_data = self.collect_financial_data()
-            
+
             # Process and store data
             if 'sentiment_data' in financial_data:
                 for sentiment in financial_data['sentiment_data']:
                     print(f"📊 Stored sentiment for {sentiment['ticker']}: {sentiment['sentiment_score']}")
-            
+
             print(" Data sources updated successfully")
         except Exception as e:
             print(f"Error updating data sources: {e}")
+
+    def crawl_and_update_data(self, period: str = "2y"):
+        """
+        Crawl financial data and update the system with new information.
+
+        Args:
+            period: Time period for data collection
+
+        Returns:
+            Dictionary with summary of crawled data
+        """
+        try:
+            print("🔄 Crawling financial data...")
+
+            # Initialize crawler
+            crawler = FinancialDataCrawler()
+
+            # Crawl all data types
+            data = crawler.crawl_all_data(period=period)
+
+            # Save to file for persistence
+            crawler.save_data(data, f'crawled_data_{period}.json')
+
+            print("✅ Data crawling completed successfully")
+            print(f"   Stocks: {len(data.get('stocks', {}))}")
+            print(f"   Cryptos: {len(data.get('crypto', {}))}")
+            print(f"   Futures: {len(data.get('futures', {}))}")
+            print(f"   Sentiment data: {len(data.get('sentiment', {}))}")
+
+            return data
+
+        except Exception as e:
+            print(f"❌ Error in crawling data: {e}")
+            return {}
 
